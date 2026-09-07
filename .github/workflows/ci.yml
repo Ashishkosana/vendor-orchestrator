@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vendor
+          POSTGRES_PASSWORD: vendor
+          POSTGRES_DB: vendor_orchestrator
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vendor -d vendor_orchestrator"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://vendor:vendor@localhost:5432/vendor_orchestrator
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package and dev tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check src tests evals
+
+      - name: Ruff format
+        run: ruff format --check src tests evals
+
+      - name: Mypy
+        run: mypy
+
+      - name: Pytest
+        run: pytest -q
