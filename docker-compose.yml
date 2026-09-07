@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vendor
+      POSTGRES_PASSWORD: vendor
+      POSTGRES_DB: vendor_orchestrator
+    ports:
+      - "5432:5432"
+    volumes:
+      - vendor_orchestrator_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vendor -d vendor_orchestrator"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://vendor:vendor@db:5432/vendor_orchestrator
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  vendor_orchestrator_pg:
