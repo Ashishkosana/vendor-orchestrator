@@ -1,4 +1,4 @@
-"""Working milestone-1 orchestration: one vendor, persist the call row.
+"""Milestone-1 create path: call Alpha, persist the call row, update status.
 
 This is infrastructure. It does **not** choose vendors or decide
 escalate vs auto-resolve — that belongs in ``agent.loop``.
@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from vendor_orchestrator.models import Case, CaseStatus, VendorCall, VendorCallStatus
-from vendor_orchestrator.orchestration.idempotency import build_idempotency_key
-from vendor_orchestrator.vendors import get_vendor
-from vendor_orchestrator.vendors.base import VendorResult
+from vendor_orchestrator.models import Case, CaseStatus, VendorCall
+from vendor_orchestrator.orchestration.fanout import (
+    DEFAULT_MAX_ATTEMPTS,
+    fan_out_vendors,
+)
 
 
 async def call_vendor(
@@ -23,57 +25,48 @@ async def call_vendor(
     *,
     extra_payload: dict[str, Any] | None = None,
     attempt: int = 1,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
 ) -> VendorCall:
-    """Invoke a registered vendor client and persist a ``VendorCall`` row."""
+    """Invoke via fan-out (retries + idempotency) and return the latest row."""
+    _ = attempt  # attempt numbers are assigned inside fan-out
     payload = dict(case.payload)
     if extra_payload:
         payload.update(extra_payload)
 
-    key = build_idempotency_key(case.id, vendor_name)
-    client = get_vendor(vendor_name)
-    result: VendorResult = await client.invoke(payload, idempotency_key=key)
-
-    row = VendorCall(
-        case_id=case.id,
-        vendor_name=vendor_name,
-        status=VendorCallStatus.SUCCESS if result.ok else VendorCallStatus.FAILED,
-        request_payload=payload,
-        response_payload=result.body,
-        idempotency_key=key,
-        attempt=attempt,
+    await fan_out_vendors(
+        session,
+        case.id,
+        [vendor_name],
+        payload,
+        max_attempts=max_attempts,
+        backoff_seconds=(0.0, 0.0, 0.0),
     )
-    session.add(row)
-    await session.flush()
+    result = await session.execute(
+        select(VendorCall)
+        .where(VendorCall.case_id == case.id, VendorCall.vendor_name == vendor_name)
+        .order_by(VendorCall.created_at.desc())
+    )
+    row = result.scalars().first()
+    if row is None:
+        raise RuntimeError(
+            f"fan-out did not persist a vendor_calls row for {vendor_name}"
+        )
     return row
 
 
 async def run_milestone1(session: AsyncSession, case: Case) -> Case:
     """Create-path happy path: call Alpha, record the result, update case status.
 
-    Leaves ``decision`` null. An agent decision is a later milestone.
+    Leaves ``decision`` null. An agent decision is a later call to ``decide_case``.
     """
-    try:
-        row = await call_vendor(session, case, "alpha")
-    except Exception as exc:  # noqa: BLE001 — persist failure, do not drop the case
-        session.add(
-            VendorCall(
-                case_id=case.id,
-                vendor_name="alpha",
-                status=VendorCallStatus.FAILED,
-                request_payload=dict(case.payload),
-                response_payload={"error": str(exc)},
-                idempotency_key=build_idempotency_key(case.id, "alpha"),
-                attempt=1,
-            )
-        )
-        case.status = CaseStatus.VENDOR_FAILED
-        await session.flush()
-        return case
-
-    case.status = (
-        CaseStatus.VENDOR_CHECKED
-        if row.status == VendorCallStatus.SUCCESS
-        else CaseStatus.VENDOR_FAILED
+    results = await fan_out_vendors(
+        session,
+        case.id,
+        ["alpha"],
+        dict(case.payload),
+        backoff_seconds=(0.0, 0.0, 0.0),
     )
+    ok = bool(results) and results[0].ok
+    case.status = CaseStatus.VENDOR_CHECKED if ok else CaseStatus.VENDOR_FAILED
     await session.flush()
     return case

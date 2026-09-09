@@ -5,8 +5,17 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -31,12 +40,12 @@ class Case(Base):
     __tablename__ = "cases"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     subject: Mapped[str] = mapped_column(String(200), nullable=False)
-    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     status: Mapped[CaseStatus] = mapped_column(
-        Enum(CaseStatus, name="case_status", native_enum=True),
+        Enum(CaseStatus, name="case_status", native_enum=False, length=32),
         nullable=False,
         default=CaseStatus.OPEN,
     )
@@ -64,20 +73,18 @@ class VendorCall(Base):
     __tablename__ = "vendor_calls"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     case_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
     )
     vendor_name: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[VendorCallStatus] = mapped_column(
-        Enum(VendorCallStatus, name="vendor_call_status", native_enum=True),
+        Enum(VendorCallStatus, name="vendor_call_status", native_enum=False, length=32),
         nullable=False,
     )
-    request_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    response_payload: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True
-    )
+    request_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    response_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(

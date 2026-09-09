@@ -11,7 +11,6 @@ model outputs.
 | `expected_decision` | Human label: `escalate` or `auto_resolve` |
 | `notes` | Why the label was applied |
 
-The harness (`python -m vendor_orchestrator.eval_harness`) prints fixture
-counts. Live precision appears only after `decide_case` is implemented and
-wired into the harness. Do not paste invented percentages into the README
-scorecard.
+The harness (`python -m vendor_orchestrator.eval_harness`) runs `decide_case`
+on each row and prints precision/recall from that run. Do not paste invented
+percentages into the README scorecard.

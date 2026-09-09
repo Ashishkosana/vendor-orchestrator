@@ -49,7 +49,7 @@ async def get_case(case_id: uuid.UUID, session: SessionDep) -> Case:
 
 @router.post("/{case_id}/run-agent", response_model=CaseRead)
 async def run_agent(case_id: uuid.UUID, session: SessionDep) -> Case:
-    """Apply the agent loop. Returns 501 until YOU IMPLEMENT ``decide_case``."""
+    """Apply the agent loop and persist escalate vs auto-resolve."""
     case = await _get_case_or_404(session, case_id)
     tools = Toolbelt(session, case)
     try:

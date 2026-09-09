@@ -1,6 +1,7 @@
 import httpx
 
 from vendor_orchestrator.vendors.alpha import AlphaVendorClient
+from vendor_orchestrator.vendors.beta import BetaVendorClient
 
 
 async def test_mock_vendor_http_happy_path(client: httpx.AsyncClient) -> None:
@@ -24,6 +25,16 @@ async def test_alpha_client_happy_path_inprocess() -> None:
     assert result.http_status == 200
     assert result.body["signal"] == "clear"
     assert result.body["notes"].startswith("mock fixture")
+    assert "alpha" in result.body["notes"]
+
+
+async def test_beta_client_happy_path_inprocess() -> None:
+    client = BetaVendorClient()
+    result = await client.invoke({"scenario": "happy"}, idempotency_key="k-beta")
+    assert result.ok
+    assert result.vendor_name == "beta"
+    assert result.body["signal"] == "clear"
+    assert result.body["vendor"] == "beta"
 
 
 async def test_create_case_calls_mock_vendor(client: httpx.AsyncClient) -> None:

@@ -9,7 +9,7 @@ async def test_health_ok(client: httpx.AsyncClient) -> None:
     assert body["service"] == "vendor-orchestrator"
 
 
-async def test_ready_ok_when_postgres_up(client: httpx.AsyncClient) -> None:
+async def test_ready_ok_when_database_up(client: httpx.AsyncClient) -> None:
     response = await client.get("/health/ready")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "database": "up"}
