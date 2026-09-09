@@ -129,17 +129,19 @@ Implemented in `src/vendor_orchestrator/orchestration/fanout.py`:
 
 ## Eval scorecard (mock fixtures only)
 
-Numbers below are copied from a local run of `python -m vendor_orchestrator.eval_harness` against `evals/fixtures/labeled_cases.jsonl`. They are **not** production metrics. Re-run the harness after changing the agent or fixtures; do not edit these cells by hand.
+Copied from `python -m vendor_orchestrator.eval_harness` on `evals/fixtures/labeled_cases.jsonl` (this revision). **Not** production traffic. Re-run the harness after changing the agent or fixtures; do not type a number that did not print.
 
 | Metric | Value | Notes |
 | --- | --- | --- |
 | Fixture count | 3 | `evals/fixtures/labeled_cases.jsonl` |
 | Labels | escalate=2, auto_resolve=1 | Human labels, not model output |
-| accuracy | *(from harness run)* | Computed on that run |
-| precision(escalate) | *(from harness run)* | Computed on that run |
-| precision(auto_resolve) | *(from harness run)* | Computed on that run |
+| accuracy | 1.000 | 3/3 on this fixture run |
+| precision(escalate) | 1.000 | tp=2, fp=0, support=2 |
+| recall(escalate) | 1.000 | same run |
+| precision(auto_resolve) | 1.000 | tp=1, fp=0, support=1 |
+| recall(auto_resolve) | 1.000 | same run |
 
-These are **eval fixtures**, not production results. The README table is filled in after the harness prints real scores.
+n=3 labeled mocks. A 1.000 here means the policy matched these three human labels. It does not generalize and is not a production accuracy claim.
 
 ## Interview talking points (honest)
 

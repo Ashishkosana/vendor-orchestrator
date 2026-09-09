@@ -34,15 +34,9 @@ _RETRYABLE_EXCEPTIONS = (
 
 def is_retryable(http_status: int | None, error: BaseException | None) -> bool:
     """Retry timeouts, 429, and 5xx. Do not retry ordinary 4xx validation errors."""
-    if error is not None and isinstance(error, _RETRYABLE_EXCEPTIONS):
+    if http_status in {408, 429} or (http_status is not None and http_status >= 500):
         return True
-    if http_status is None:
-        return error is not None
-    if http_status == 408 or http_status == 429:
-        return True
-    if http_status >= 500:
-        return True
-    return False
+    return error is not None and isinstance(error, _RETRYABLE_EXCEPTIONS)
 
 
 def _dedupe_names(vendor_names: Sequence[str]) -> list[str]:
