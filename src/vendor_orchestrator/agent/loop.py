@@ -1,42 +1,102 @@
 """Agent decision / tool-use loop.
 
-THIS FILE IS INTENTIONALLY UNFINISHED.
+Policy is intentionally small and inspectable: incomplete intake escalates
+without spending vendors; otherwise consult a subset of mock vendors and
+escalate unless every consulted vendor returns ``signal=clear``.
 
-Ashish owns this module. A finished-looking policy here would be
-indefensible in an interview. Implement the loop yourself, then wire it
-to ``POST /v1/cases/{id}/run-agent`` and the eval harness.
+This is not a KYB/AML/sanctions product. Vendors are mocks. The rule exists
+so labeled fixtures can score escalate vs auto-resolve honestly.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Any
+
 from vendor_orchestrator.agent.tools import Toolbelt
-from vendor_orchestrator.agent.types import AgentDecision
+from vendor_orchestrator.agent.types import AgentDecision, Decision
 from vendor_orchestrator.models import Case
+from vendor_orchestrator.vendors.base import VendorResult
+
+
+def packet_is_incomplete(payload: dict[str, Any]) -> bool:
+    """Escalate when the intake packet is explicitly incomplete.
+
+    Missing ``packet_complete`` is treated as "complete enough to consult
+    vendors" so ordinary create-case payloads still get a vendor check.
+    """
+    return payload.get("packet_complete") is False
+
+
+def select_vendors(payload: dict[str, Any], available: Sequence[str]) -> list[str]:
+    """Pick a subset of registered vendors. Do not blindly call every name.
+
+    ``payload["vendors"]`` is an optional explicit list (eval / tests).
+    Otherwise the primary mock (``alpha``) is enough evidence for this policy.
+    """
+    available_set = set(available)
+    requested = payload.get("vendors")
+    if isinstance(requested, list):
+        selected = [
+            name
+            for name in requested
+            if isinstance(name, str) and name in available_set
+        ]
+        if selected:
+            return selected
+    if "alpha" in available_set:
+        return ["alpha"]
+    return list(available)[:1]
+
+
+def _signal(result: VendorResult) -> str | None:
+    raw = (result.body or {}).get("signal")
+    if raw is None:
+        return None
+    return str(raw)
 
 
 async def decide_case(case: Case, tools: Toolbelt) -> AgentDecision:
-    """Choose vendors, observe results, return escalate | auto_resolve.
+    """Choose vendors, observe mock results, return escalate | auto_resolve."""
+    payload = dict(case.payload or {})
 
-    YOU IMPLEMENT — suggested steps (adapt, do not cargo-cult):
+    if packet_is_incomplete(payload):
+        return AgentDecision(
+            decision=Decision.ESCALATE,
+            reason="packet_complete is false; escalate without additional vendor calls",
+            vendors_used=(),
+        )
 
-    1. Read ``case.payload`` (and ``case.subject``). Decide whether any
-       vendor evidence is needed. Do **not** blindly call every vendor.
-    2. Select a subset of ``tools.available_vendors()`` and call them via
-       ``await tools.call_vendor(name)``. Later, switch this to fan-out
-       so retries/idempotency stay out of this function.
-    3. Inspect persisted ``VendorCall.response_payload`` values as evidence.
-    4. Return ``AgentDecision`` with:
-         - ``decision``: ``Decision.ESCALATE`` or ``Decision.AUTO_RESOLVE``
-         - ``reason``: short, inspectable, written for evals (not marketing)
-         - ``vendors_used``: the names you actually called
-    5. Keep the policy honest: mock vendors + labeled fixtures, not
-       "production compliance / KYB / AML / sanctions" claims.
+    selected = tuple(select_vendors(payload, tools.available_vendors()))
+    if not selected:
+        return AgentDecision(
+            decision=Decision.ESCALATE,
+            reason="no registered mock vendors available to consult",
+            vendors_used=(),
+        )
 
-    Interview framing that matches this repo: orchestration + case state +
-    evals. The interesting part is *your* selection and decision rule.
-    """
-    # YOU IMPLEMENT: agent decision / tool-use loop
-    raise NotImplementedError(
-        "YOU IMPLEMENT: agent decision/tool-use loop "
-        f"(case_id={case.id}, available_vendors={tools.available_vendors()})"
+    results = await tools.call_vendors(selected)
+    for result in results:
+        if not result.ok:
+            return AgentDecision(
+                decision=Decision.ESCALATE,
+                reason=(
+                    f"vendor {result.vendor_name} call failed "
+                    f"(http={result.http_status})"
+                ),
+                vendors_used=selected,
+            )
+        signal = _signal(result)
+        if signal != "clear":
+            return AgentDecision(
+                decision=Decision.ESCALATE,
+                reason=(f"vendor {result.vendor_name} signal={signal!r} is not clear"),
+                vendors_used=selected,
+            )
+
+    names = ", ".join(selected)
+    return AgentDecision(
+        decision=Decision.AUTO_RESOLVE,
+        reason=f"packet complete and mock vendor(s) [{names}] returned signal=clear",
+        vendors_used=selected,
     )

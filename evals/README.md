@@ -1,9 +1,14 @@
 # Evals
 
-Precision is computed on **labeled mock fixtures** for two decisions:
-`escalate` vs `auto_resolve`.
+Precision, recall, and accuracy are computed by running `decide_case` on
+**labeled mock fixtures** (`escalate` vs `auto_resolve`).
 
-Until the agent loop exists, `python -m vendor_orchestrator.eval_harness`
-prints a scorecard with `—` for live metrics. That is intentional.
+```bash
+python -m vendor_orchestrator.eval_harness
+```
+
+The harness uses in-memory SQLite and the in-process mock vendors. It never
+prints a production score. If you change the agent or the fixture file, re-run
+the command and copy the printed numbers — do not invent them.
 
 See `fixtures/README.md` and the scorecard section in the repository README.

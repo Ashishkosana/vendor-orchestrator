@@ -2,13 +2,14 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool, StaticPool
 
 from vendor_orchestrator.config import Settings, get_settings
 from vendor_orchestrator.models import Base
@@ -16,12 +17,48 @@ from vendor_orchestrator.models import Base
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
+SQLITE_MEMORY_URL = "sqlite+aiosqlite:///:memory:"
+
+
+def database_url_is_sqlite(url: str) -> bool:
+    return url.startswith("sqlite")
+
+
+def _is_sqlite_memory(url: str) -> bool:
+    normalized = url.split("?", 1)[0].rstrip("/")
+    return (
+        normalized in {"sqlite+aiosqlite://", "sqlite://"}
+        or normalized.endswith(":memory:")
+        or normalized.endswith("://")
+    )
+
+
+def _enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
+    @event.listens_for(engine.sync_engine, "connect")
+    def _on_connect(dbapi_connection: object, _connection_record: object) -> None:
+        cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
+def make_async_engine(url: str) -> AsyncEngine:
+    """Create an engine for Postgres (Compose/app) or SQLite (tests/evals)."""
+    if database_url_is_sqlite(url):
+        engine = create_async_engine(
+            url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool if _is_sqlite_memory(url) else NullPool,
+        )
+        _enable_sqlite_foreign_keys(engine)
+        return engine
+    return create_async_engine(url, pool_pre_ping=True)
+
 
 def get_engine(settings: Settings | None = None) -> AsyncEngine:
     global _engine
     if _engine is None:
         cfg = settings or get_settings()
-        _engine = create_async_engine(cfg.database_url, pool_pre_ping=True)
+        _engine = make_async_engine(cfg.database_url)
     return _engine
 
 
@@ -58,7 +95,7 @@ async def wait_for_db(settings: Settings | None = None) -> None:
         except Exception as exc:  # noqa: BLE001 — startup retry is intentional
             last_error = exc
             await asyncio.sleep(cfg.db_connect_delay_seconds)
-    raise RuntimeError("Postgres was not reachable at startup") from last_error
+    raise RuntimeError("Database was not reachable at startup") from last_error
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

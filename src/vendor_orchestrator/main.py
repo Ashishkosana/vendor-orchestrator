@@ -22,9 +22,9 @@ app = FastAPI(
     version=__version__,
     description=(
         "Portfolio case-orchestration service. Creates cases, calls mock "
-        "vendor HTTP clients, and persists state in Postgres. The agent "
-        "decision loop is intentionally unfinished (YOU IMPLEMENT). "
-        "Not a KYB/AML/sanctions product."
+        "vendor HTTP clients, persists state, and lets an agent decide "
+        "escalate vs auto-resolve from mock vendor evidence. "
+        "Not a KYB/AML/sanctions product. Mocks only; no production traffic."
     ),
     lifespan=lifespan,
 )

@@ -1,18 +1,14 @@
 import uuid
 from pathlib import Path
 
-import pytest
-
-from vendor_orchestrator.agent.loop import decide_case
-from vendor_orchestrator.agent.tools import Toolbelt
+from vendor_orchestrator.agent.loop import packet_is_incomplete, select_vendors
 from vendor_orchestrator.agent.types import Decision
 from vendor_orchestrator.eval_harness import (
     format_scorecard,
     load_fixtures,
     precision_by_label,
 )
-from vendor_orchestrator.models import Case
-from vendor_orchestrator.orchestration.fanout import fan_out_vendors, is_retryable
+from vendor_orchestrator.orchestration.fanout import is_retryable
 from vendor_orchestrator.orchestration.idempotency import build_idempotency_key
 
 
@@ -26,31 +22,33 @@ def test_idempotency_key_is_stable() -> None:
     )
 
 
-async def test_agent_loop_is_explicitly_unimplemented() -> None:
-    case = Case(subject="stub", payload={})
-    case.id = uuid.uuid4()
-
-    class _DeadSession:
-        pass
-
-    tools = Toolbelt(_DeadSession(), case)  # type: ignore[arg-type]
-    with pytest.raises(NotImplementedError, match="YOU IMPLEMENT"):
-        await decide_case(case, tools)
-
-
-async def test_fanout_is_explicitly_unimplemented() -> None:
-    with pytest.raises(NotImplementedError, match="YOU IMPLEMENT"):
-        await fan_out_vendors(
-            session=None,  # type: ignore[arg-type]
-            case_id=uuid.uuid4(),
-            vendor_names=["alpha"],
-            payload={},
-        )
+def test_retry_classifier_retries_transient_only() -> None:
+    assert is_retryable(503, None) is True
+    assert is_retryable(429, None) is True
+    assert is_retryable(408, None) is True
+    assert is_retryable(500, None) is True
+    assert is_retryable(400, None) is False
+    assert is_retryable(404, None) is False
+    assert is_retryable(200, None) is False
+    assert is_retryable(None, TimeoutError("slow")) is True
+    assert is_retryable(None, ValueError("no")) is False
 
 
-def test_retry_classifier_is_explicitly_unimplemented() -> None:
-    with pytest.raises(NotImplementedError, match="YOU IMPLEMENT"):
-        is_retryable(503, None)
+def test_select_vendors_does_not_blindly_fan_out() -> None:
+    available = ["alpha", "beta"]
+    assert select_vendors({}, available) == ["alpha"]
+    assert select_vendors({"vendors": ["beta"]}, available) == ["beta"]
+    assert select_vendors({"vendors": ["beta", "alpha"]}, available) == [
+        "beta",
+        "alpha",
+    ]
+    assert select_vendors({"vendors": ["missing"]}, available) == ["alpha"]
+
+
+def test_packet_incomplete_only_when_explicitly_false() -> None:
+    assert packet_is_incomplete({"packet_complete": False}) is True
+    assert packet_is_incomplete({"packet_complete": True}) is False
+    assert packet_is_incomplete({}) is False
 
 
 def test_eval_fixtures_load_and_are_labeled() -> None:
@@ -71,6 +69,8 @@ def test_precision_on_toy_predictions_not_production() -> None:
     reports = precision_by_label(y_true, y_pred)  # type: ignore[arg-type]
     assert reports["escalate"].precision == 1.0
     assert reports["auto_resolve"].precision == 0.5
+    assert reports["escalate"].recall == 0.5
+    assert reports["auto_resolve"].recall == 1.0
 
 
 def test_scorecard_without_predictions_has_no_invented_metric() -> None:
