@@ -11,9 +11,9 @@ jobs:
     timeout-minutes: 15
 
     env:
-      # In-memory SQLite — no Docker / Postgres service required.
-      DATABASE_URL: sqlite+aiosqlite:///:memory:
-      TEST_DATABASE_URL: sqlite+aiosqlite:///:memory:
+      # Quoted: a trailing colon in :memory: is invalid unquoted YAML.
+      DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+      TEST_DATABASE_URL: "sqlite+aiosqlite:///:memory:"
 
     steps:
       - name: Check out repository
